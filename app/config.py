@@ -11,7 +11,11 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = True
 
-    # SQLite для разработки
+    # # Переключаемся на PostgreSQL (через Docker)
+    # # Формат: postgresql+asyncpg://пользователь:пароль@хост:порт/база
+    # DATABASE_URL: str = "postgresql+asyncpg://friend:friend123@localhost:5432/virtual_friend"
+
+    # SQLite запасной вариант
     DATABASE_URL: str = "sqlite+aiosqlite:///./virtual_friend.db"
 
     REDIS_URL: str = "redis://localhost:6379/0"
