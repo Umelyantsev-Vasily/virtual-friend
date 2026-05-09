@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.models.character import Character
 from app.models.message import Message
 from app.schemas.message import MessageCreate, MessageResponse
+from app.services.ai_service import generate_response
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -37,8 +38,25 @@ async def send_message(
     await db.commit()
     await db.refresh(user_message)
 
-    # Пока возвращаем просто сообщение (позже добавим OpenAI)
-    return user_message
+    # 3. Генерируем ответ AI через YandexGPT
+    ai_reply_text = await generate_response(
+        character_name=character.name,
+        personality=character.personality,
+        user_message=message_data.content
+    )
+
+    # 4. Сохраняем ответ AI как сообщение от персонажа
+    ai_message = Message(
+        character_id=message_data.character_id,
+        role="assistant",  # ← Важно: role = "assistant"
+        content=ai_reply_text
+    )
+    db.add(ai_message)
+    await db.commit()
+    await db.refresh(ai_message)
+
+    # 5. Возвращаем ответ AI
+    return ai_message
 
 
 @router.get("/history/{character_id}", response_model=list[MessageResponse])
