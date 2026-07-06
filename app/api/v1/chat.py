@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from app.core.database import get_db
-from app.models.character import Character
-from app.models.message import Message
-from app.schemas.message import MessageCreate, MessageResponse
+from app.services.character_service import CharacterService
+from app.services.message_service import MessageService
 from app.services.ai_service import generate_response
+from app.schemas.message import MessageCreate, MessageResponse
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -16,46 +15,30 @@ async def send_message(
         telegram_id: str,
         db: AsyncSession = Depends(get_db)
 ):
-    # 1. Проверяем, что персонаж принадлежит пользователю
-    result = await db.execute(
-        select(Character).where(
-            Character.id == message_data.character_id,
-            Character.user_telegram_id == telegram_id
-        )
-    )
-    character = result.scalar_one_or_none()
+    char_service = CharacterService(db)
+    msg_service = MessageService(db)
 
+    # Получаем персонажа
+    character = await char_service.get_by_user_id(telegram_id)
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
 
-    # 2. Сохраняем сообщение пользователя
-    user_message = Message(
-        character_id=message_data.character_id,
-        role="user",
-        content=message_data.content
-    )
-    db.add(user_message)
-    await db.commit()
-    await db.refresh(user_message)
+    # Сохраняем сообщение пользователя
+    await msg_service.save_user_message(character.id, message_data.content)
 
-    # 3. Генерируем ответ AI через YandexGPT
-    ai_reply_text = await generate_response(
+    # Получаем историю для AI (последние 10 сообщений)
+    history = await msg_service.get_history_for_ai(character.id, limit=10)
+
+    # Генерируем ответ с учётом истории
+    ai_reply = await generate_response(
         character_name=character.name,
         personality=character.personality,
-        user_message=message_data.content
+        user_message=message_data.content,
+        history=history
     )
 
-    # 4. Сохраняем ответ AI как сообщение от персонажа
-    ai_message = Message(
-        character_id=message_data.character_id,
-        role="assistant",  # ← Важно: role = "assistant"
-        content=ai_reply_text
-    )
-    db.add(ai_message)
-    await db.commit()
-    await db.refresh(ai_message)
-
-    # 5. Возвращаем ответ AI
+    # Сохраняем ответ AI
+    ai_message = await msg_service.save_assistant_message(character.id, ai_reply)
     return ai_message
 
 
@@ -66,21 +49,14 @@ async def get_history(
         limit: int = 50,
         db: AsyncSession = Depends(get_db)
 ):
+    char_service = CharacterService(db)
+
     # Проверяем доступ
-    result = await db.execute(
-        select(Character).where(
-            Character.id == character_id,
-            Character.user_telegram_id == telegram_id
-        )
-    )
-    if not result.scalar_one_or_none():
+    character = await char_service.get_by_user_id(telegram_id)
+    if not character or character.id != character_id:
         raise HTTPException(status_code=404, detail="Character not found")
 
     # Получаем историю
-    result = await db.execute(
-        select(Message)
-        .where(Message.character_id == character_id)
-        .order_by(Message.created_at)
-        .limit(limit)
-    )
-    return result.scalars().all()
+    msg_service = MessageService(db)
+    messages = await msg_service.get_history(character_id, limit)
+    return messages

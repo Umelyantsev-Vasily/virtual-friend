@@ -18,9 +18,15 @@ class Settings(BaseSettings):
     # SQLite запасной вариант
     DATABASE_URL: str = "sqlite+aiosqlite:///./virtual_friend.db"
 
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # REDIS_URL: str = "redis://localhost:6379/0"
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+    # DeepSeek API Configuration
+    DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
+    DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
 

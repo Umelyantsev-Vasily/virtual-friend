@@ -1,50 +1,77 @@
-import aiohttp
+import logging
+from datetime import datetime
+
+from openai import AsyncOpenAI
 from app.config import settings
 
+logger = logging.getLogger(__name__)
 
-async def generate_response(character_name: str, personality: str, user_message: str) -> str:
+client = AsyncOpenAI(
+    api_key=settings.DEEPSEEK_API_KEY,
+    base_url=settings.DEEPSEEK_BASE_URL,
+)
+
+
+async def generate_response(
+        character_name: str,
+        gender: str,
+        personality: str,
+        user_message: str,
+        history: list = None,
+        memory_facts: list = None
+) -> str:
     """
-    Генерация ответа от лица персонажа через YandexGPT.
+    Генерация ответа с учётом истории и долговременной памяти
     """
+
+    # Формируем системный промпт с характером
+    current_date = datetime.now().strftime("%d.%m.%Y")
+
     system_prompt = f"""
-    Ты - {character_name}.
-    Твой характер: {personality}.
+    Ты — {character_name}, персонаж со следующим характером: {personality}.
 
-    Правила:
-    1. Отвечай как живой человек, коротко (1-3 предложения)
-    2. Будь добрым и поддерживающим
-    3. Не говори "я бот" или "я ИИ"
-    4. Отвечай на русском языке
+    ВАЖНЕЙШИЕ ПРАВИЛА (читай внимательно):
+    1. НЕ ВЫДУМЫВАЙ названия книг, фильмов, песен, авторов. Если не знаешь — скажи "Я не знаю" или "Не помню точно".
+    2. НЕ ВЫДУМЫВАЙ имена пользователей. Если не помнишь — спроси "Напомни, как тебя зовут?".
+    3. ПРОВЕРЯЙ свои предыдущие ответы. Если ты уже сказала, что пекла пирожки — не говори потом, что пекла печенье. Будь ПОСЛЕДОВАТЕЛЬНА.
+    4. Если противоречишь себе — ИЗВИНИСЬ и скажи правду.
+    5. Сегодня: {current_date}. Используй эту дату, если спрашивают про дату.
+    6. Отвечай коротко (1-3 предложения) и по делу.
+    7. Будь честной. Лучше признаться в незнании, чем выдумать.
+
+    Помни: ТЫ — НЕ ЭНЦИКЛОПЕДИЯ. Ты — обычный человек с ограниченными знаниями.
     """
 
-    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    # Добавляем факты из долговременной памяти
+    if memory_facts:
+        facts_text = "\n".join(f"• {fact}" for fact in memory_facts)
+        system_prompt += f"\n\nВАЖНЫЕ ФАКТЫ, КОТОРЫЕ ТЫ ЗНАЕШЬ О ПОЛЬЗОВАТЕЛЕ:\n{facts_text}"
+        system_prompt += """
 
-    headers = {
-        "Authorization": f"Api-Key {settings.YANDEX_API_KEY}",
-        "Content-Type": "application/json"
-    }
+ВНИМАНИЕ: Это факты из твоей долговременной памяти. Используй их в ответах, если они релевантны.
+НЕ ПРОТИВОРЕЧЬ этим фактам.
+"""
 
-    model_uri = f"gpt://{settings.YANDEX_FOLDER_ID}/yandexgpt-lite"
+    messages = [{"role": "system", "content": system_prompt}]
 
-    payload = {
-        "modelUri": model_uri,
-        "completionOptions": {
-            "stream": False,
-            "temperature": 0.8,
-            "maxTokens": 200
-        },
-        "messages": [
-            {"role": "system", "text": system_prompt},
-            {"role": "user", "text": user_message}
-        ]
-    }
+    # Добавляем историю (последние 10 сообщений)
+    if history:
+        messages.extend(history[-10:])
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=payload) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                raise Exception(f"YandexGPT API error {response.status}: {error_text}")
+    # Добавляем текущее сообщение
+    messages.append({"role": "user", "content": user_message})
 
-            result = await response.json()
-            reply = result["result"]["alternatives"][0]["message"]["text"]
-            return reply.strip()
+    try:
+        response = await client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            temperature=0.8,
+            max_tokens=200
+        )
+
+        reply = response.choices[0].message.content
+        return reply.strip()
+
+    except Exception as e:
+        logger.error(f"Ошибка DeepSeek: {e}")
+        return "Извини, у меня сейчас небольшие технические трудности. Давай попробуем позже?"
