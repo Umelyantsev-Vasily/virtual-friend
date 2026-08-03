@@ -344,6 +344,7 @@ def main():
     app = (
         Application.builder()
         .token(settings.TELEGRAM_BOT_TOKEN)
+        .base_url("https://telegram-api-proxy.virtual-friend-telegram-proxy.workers.dev/bot")
         .connect_timeout(60.0)
         .read_timeout(60.0)
         .write_timeout(60.0)
@@ -359,7 +360,6 @@ def main():
 
     logger.info("🤖 Telegram бот запущен!")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
