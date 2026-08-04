@@ -1,5 +1,10 @@
 import sys
 import os
+
+from app.bot.keyboards.menu import MenuKeyboard
+
+from app.bot.handlers.menu import MenuHandlers
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import random
 import asyncio
@@ -31,16 +36,42 @@ WELCOME_FACTS = [
     "📚 Каждый диалог — это новая история. Начни свою!",
 ]
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Приветствие"""
+    """Приветствие с меню"""
+    user = update.effective_user
+    user_id = str(user.id)
+
+    # Проверяем есть ли персонаж
+    async with AsyncSessionLocal() as db:
+        service = CharacterService(db)
+        character = await service.get_by_user_id(user_id)
+        has_character = character is not None
+
+    welcome_text = f"""
+👋 **Привет, {user.first_name}!**
+
+Добро пожаловать в Frends — твоего виртуального друга.
+
+"""
+    if has_character:
+        welcome_text += f"""
+🌟 Твой друг **{character.name}** уже ждёт тебя!
+Просто напиши что-нибудь, чтобы начать диалог 💬
+        """
+    else:
+        welcome_text += """
+📝 Создай своего персонажа и начни общение!
+
+Нажми кнопку "Создать персонажа" ниже.
+        """
+
     await update.message.reply_text(
-        "🤗 Привет! Я Er твой виртуальный друг!\n\n"
-        "📌 Команды:\n"
-        "/create — создать персонажа (Er по умолчанию)\n"
-        "/new — создать персонажа с уникальными параметрами\n"
-        "/reset — удалить текущего персонажа\n"
-        "/start — показать это сообщение"
+        welcome_text,
+        parse_mode='Markdown',
+        reply_markup=MenuKeyboard.main_menu(has_character)
     )
+
 
 async def create_character(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Создание персонажа с элементами магии и случайности"""
@@ -106,7 +137,8 @@ async def new_character(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "🎭 Давай создадим нового персонажа!\n\n"
-        "1️⃣ Отправь имя персонажа (например: Анна):"
+        "1️⃣ Отправь имя персонажа (например: Анна):",
+        reply_markup=MenuKeyboard.cancel()
     )
     context.user_data['creating_character'] = True
 
@@ -262,31 +294,101 @@ async def confirm_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Ты можешь создать нового командой /create или /new"
         )
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщений с учётом истории диалога"""
     user_id = str(update.effective_user.id)
     user_message = update.message.text
+
+    # === 1. ОБРАБОТКА КНОПОК МЕНЮ ===
+
+    # Кнопка "Отмена" - очищаем состояние создания персонажа
+    if user_message == "❌ Отмена":
+        # Очищаем все временные данные
+        context.user_data.pop('creating_character', None)
+        context.user_data.pop('character_name', None)
+        context.user_data.pop('character_age', None)
+        context.user_data.pop('character_gender', None)
+        context.user_data.pop('character_personality', None)
+
+        # Проверяем есть ли персонаж
+        async with AsyncSessionLocal() as db:
+            service = CharacterService(db)
+            character = await service.get_by_user_id(user_id)
+            has_character = character is not None
+
+        await update.message.reply_text(
+            "❌ Действие отменено",
+            reply_markup=MenuKeyboard.main_menu(has_character)
+        )
+        return
+
+    # Кнопка "Создать персонажа"
+    if user_message == "📝 Создать персонажа":
+        await create_character(update, context)
+        return
+
+    # Кнопка "Диалог" - просто продолжаем общение
+    if user_message == "💬 Диалог":
+        # Проверяем есть ли персонаж
+        async with AsyncSessionLocal() as db:
+            service = CharacterService(db)
+            character = await service.get_by_user_id(user_id)
+            if not character:
+                await update.message.reply_text(
+                    "❌ У тебя еще нет персонажа!\nСоздай его через /create или нажми '📝 Создать персонажа'",
+                    reply_markup=MenuKeyboard.main_menu(False)
+                )
+                return
+            # Продолжаем обработку как обычное сообщение
+            # Не возвращаем, а идем дальше
+
+    # Кнопка "Мой профиль"
+    if user_message == "👤 Мой профиль":
+        await show_profile(update, context)
+        return
+
+    # Кнопка "Сменить персонажа"
+    if user_message == "🔄 Сменить персонажа":
+        await reset_character(update, context)
+        return
+
+    # Кнопка "Настройки"
+    if user_message == "⚙️ Настройки":
+        await show_settings(update, context)
+        return
+
+    # === 2. ПРОВЕРКА СОСТОЯНИЯ СОЗДАНИЯ ПЕРСОНАЖА ===
 
     # Проверяем, не находится ли пользователь в процессе создания персонажа
     if context.user_data.get('creating_character'):
         await handle_character_creation(update, context)
         return
 
+    # === 3. ОСНОВНАЯ ОБРАБОТКА СООБЩЕНИЙ ===
+
     async with AsyncSessionLocal() as db:
         char_service = CharacterService(db)
         msg_service = MessageService(db)
 
+        # Получаем персонажа
         character = await char_service.get_by_user_id(user_id)
         if not character:
-            await update.message.reply_text("У тебя еще нет персонажа! Создай его командой /create")
+            await update.message.reply_text(
+                "❌ У тебя еще нет персонажа!\nСоздай его через /create или нажми '📝 Создать персонажа'",
+                reply_markup=MenuKeyboard.main_menu(False)
+            )
             return
 
+        # Сохраняем сообщение пользователя
         await msg_service.save_user_message(character.id, user_message)
         history = await msg_service.get_history_for_ai(character.id, limit=20)
 
+        # Получаем факты из памяти
         memory_service = MemoryService(character.id)
         memory_facts = await memory_service.get_relevant_facts(user_message, limit=5)
 
+        # Генерируем ответ
         try:
             ai_reply = await generate_response(
                 character_name=character.name,
@@ -300,41 +402,157 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Ошибка AI: {e}")
             ai_reply = "Извини, у меня сейчас небольшие технические трудности. Давай попробуем позже?"
 
+        # Сохраняем ответ ассистента
         await msg_service.save_assistant_message(character.id, ai_reply)
 
-        # Извлечение фактов из сообщения пользователя
+        # === 4. ИЗВЛЕЧЕНИЕ ФАКТОВ ИЗ СООБЩЕНИЯ ===
+
         try:
             memory_service = MemoryService(character.id)
 
             # 1. Имя пользователя
             name_match = re.search(r'(?:меня зовут|я\s+)([А-Яа-яЁё\s]+?)(?:[,\.]|$)', user_message, re.IGNORECASE)
             if name_match:
-                await memory_service.add_fact(f"Имя пользователя: {name_match.group(1).strip()}")
+                name = name_match.group(1).strip()
+                if len(name) > 2:
+                    await memory_service.add_fact(f"Имя пользователя: {name}")
+                    logger.info(f"Сохранено имя пользователя: {name}")
 
             # 2. Возраст
             age_match = re.search(r'(?:мне|мне\s+)?(\d{1,2})\s*(?:лет|года|год)', user_message, re.IGNORECASE)
             if age_match:
-                await memory_service.add_fact(f"Возраст пользователя: {age_match.group(1)}")
+                age = age_match.group(1)
+                await memory_service.add_fact(f"Возраст пользователя: {age}")
+                logger.info(f"Сохранен возраст: {age}")
 
             # 3. День рождения
             bd_match = re.search(r'день рождения\s+(\d{1,2}\s+[а-яА-ЯёЁ]+\s+\d{4})', user_message, re.IGNORECASE)
             if bd_match:
-                await memory_service.add_fact(f"День рождения пользователя: {bd_match.group(1)}")
+                bd = bd_match.group(1)
+                await memory_service.add_fact(f"День рождения пользователя: {bd}")
+                logger.info(f"Сохранен день рождения: {bd}")
 
             # 4. Любимая еда
-            love_match = re.search(r'я люблю\s+([а-яА-ЯёЁ\s,]+?)(?:[.,]|$)', user_message, re.IGNORECASE)
+            love_match = re.search(r'я (?:люблю|обожаю)\s+([а-яА-ЯёЁ\s,]+?)(?:[.,!?]|$)', user_message, re.IGNORECASE)
             if love_match:
-                await memory_service.add_fact(f"Пользователь любит: {love_match.group(1).strip()}")
+                food = love_match.group(1).strip()
+                if len(food) > 2:
+                    await memory_service.add_fact(f"Пользователь любит: {food}")
+                    logger.info(f"Сохранена любимая еда: {food}")
 
             # 5. Хобби/увлечения
-            hobby_match = re.search(r'(?:хобби|увлекаюсь)\s+([а-яА-ЯёЁ\s,]+?)(?:[.,]|$)', user_message, re.IGNORECASE)
+            hobby_match = re.search(r'(?:хобби|увлекаюсь|занимаюсь)\s+([а-яА-ЯёЁ\s,]+?)(?:[.,!?]|$)', user_message,
+                                    re.IGNORECASE)
             if hobby_match:
-                await memory_service.add_fact(f"Увлечение пользователя: {hobby_match.group(1).strip()}")
+                hobby = hobby_match.group(1).strip()
+                if len(hobby) > 2:
+                    await memory_service.add_fact(f"Увлечение пользователя: {hobby}")
+                    logger.info(f"Сохранено хобби: {hobby}")
+
+            # 6. Работа/профессия
+            work_match = re.search(r'(?:работаю|профессия)\s+([а-яА-ЯёЁ\s]+?)(?:[.,!?]|$)', user_message, re.IGNORECASE)
+            if work_match:
+                work = work_match.group(1).strip()
+                if len(work) > 2:
+                    await memory_service.add_fact(f"Профессия пользователя: {work}")
+                    logger.info(f"Сохранена профессия: {work}")
+
+            # 7. Город
+            city_match = re.search(r'(?:живу|город)\s+([а-яА-ЯёЁ\s]+?)(?:[.,!?]|$)', user_message, re.IGNORECASE)
+            if city_match:
+                city = city_match.group(1).strip()
+                if len(city) > 2:
+                    await memory_service.add_fact(f"Город пользователя: {city}")
+                    logger.info(f"Сохранен город: {city}")
 
         except Exception as e:
             logger.error(f"Ошибка сохранения факта: {e}")
 
-    await update.message.reply_text(ai_reply)
+    # === 5. ОТПРАВКА ОТВЕТА ===
+
+    # Отправляем ответ с меню (если есть персонаж)
+    has_character = character is not None
+    await update.message.reply_text(
+        ai_reply,
+        reply_markup=MenuKeyboard.main_menu(has_character)
+    )
+
+
+# === ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПРОФИЛЯ И НАСТРОЕК ===
+
+async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать профиль пользователя"""
+    user_id = str(update.effective_user.id)
+
+    async with AsyncSessionLocal() as db:
+        char_service = CharacterService(db)
+        msg_service = MessageService(db)
+
+        character = await char_service.get_by_user_id(user_id)
+        if not character:
+            await update.message.reply_text(
+                "❌ У тебя еще нет персонажа!",
+                reply_markup=MenuKeyboard.main_menu(False)
+            )
+            return
+
+        # Получаем статистику
+        history = await msg_service.get_history(character.id, limit=100)
+        total_messages = len(history)
+
+        # Получаем факты из памяти
+        memory_service = MemoryService(character.id)
+        facts = await memory_service.get_all_facts()
+
+        profile_text = f"""
+👤 **Твой профиль**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📡 **Персонаж:** {character.name}
+⏳ **Возраст:** {character.age}
+⚧️ **Пол:** {character.gender}
+🧬 **Характер:** {character.personality}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **Статистика:**
+• 💬 Сообщений: {total_messages}
+• 🧠 Фактов в памяти: {len(facts)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
+        if facts:
+            profile_text += "\n🧩 **Что я знаю о тебе:**\n"
+            for fact in facts[:5]:  # Показываем первые 5 фактов
+                profile_text += f"• {fact}\n"
+            if len(facts) > 5:
+                profile_text += f"• ...и еще {len(facts) - 5} фактов\n"
+
+        await update.message.reply_text(
+            profile_text,
+            parse_mode='Markdown',
+            reply_markup=MenuKeyboard.main_menu(True)
+        )
+
+
+async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать настройки"""
+    settings_text = """
+⚙️ **Настройки**
+
+Доступные опции:
+• 🔄 Сменить персонажа — /reset
+• 🗑 Удалить все данные — /reset
+• 📝 Создать нового персонажа — /new
+
+**Совет:** 
+Чем больше ты общаешься, тем лучше я тебя понимаю!
+"""
+
+    await update.message.reply_text(
+        settings_text,
+        parse_mode='Markdown',
+        reply_markup=MenuKeyboard.main_menu(True)
+    )
+
 
 def main():
     if not settings.TELEGRAM_BOT_TOKEN:
@@ -351,15 +569,29 @@ def main():
         .build()
     )
 
+    # Существующие обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("create", create_character))
     app.add_handler(CommandHandler("new", new_character))
     app.add_handler(CommandHandler("reset", reset_character))
     app.add_handler(CommandHandler("confirm_reset", confirm_reset))
+
+    # НОВЫЕ обработчики для кнопок меню
+    menu = MenuHandlers()
+    app.add_handler(MessageHandler(filters.Regex('^ℹ️ О боте$'), menu.about))
+    app.add_handler(MessageHandler(filters.Regex('^❓ Помощь$'), menu.help))
+
+    # Обработчики для кнопок действий
+    app.add_handler(MessageHandler(filters.Regex('^📝 Создать персонажа$'), create_character))
+    app.add_handler(
+        MessageHandler(filters.Regex('^💬 Диалог$'), handle_message))  # Просто обрабатываем как обычное сообщение
+
+    # ОСНОВНОЙ обработчик сообщений (должен быть последним)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("🤖 Telegram бот запущен!")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
