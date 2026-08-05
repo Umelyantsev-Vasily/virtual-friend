@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"  # development / production
 
     # База данных — выбирается автоматически
-    DATABASE_URL: str = ""
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./virtual_friend.db")
 
     REDIS_URL: str = "redis://localhost:6379/0"
     OPENAI_API_KEY: str = ""

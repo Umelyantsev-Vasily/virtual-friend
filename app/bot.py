@@ -281,7 +281,7 @@ async def confirm_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ⚠️ ОЧИЩАЕМ ПАМЯТЬ ПЕРЕД УДАЛЕНИЕМ
-        memory_service = MemoryService(character.id)
+        memory_service = MemoryService(db, character.id)
         await memory_service.clear_all()
 
         # Удаляем персонажа
@@ -385,7 +385,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = await msg_service.get_history_for_ai(character.id, limit=20)
 
         # Получаем факты из памяти
-        memory_service = MemoryService(character.id)
+        memory_service = MemoryService(db, character.id)
         memory_facts = await memory_service.get_relevant_facts(user_message, limit=5)
 
         # Генерируем ответ
