@@ -6,7 +6,7 @@ services:
     container_name: virtual_friend_postgres
     environment:
       POSTGRES_USER: friend
-      POSTGRES_PASSWORD: friend123
+      POSTGRES_PASSWORD: 221096
       POSTGRES_DB: virtual_friend
     ports:
       - "5432:5432"
