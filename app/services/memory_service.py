@@ -1,86 +1,118 @@
-import chromadb
-from chromadb.utils import embedding_functions
-from app.config import settings
-import uuid
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.memory import Memory
+from app.services.ai_service import get_embedding
+import logging
 
-
-# Инициализация клиента ChromaDB (хранилище в папке ./chroma_data)
-chroma_client = chromadb.PersistentClient(path="./chroma_data")
-
-# Используем embedding-функцию от OpenAI (можно заменить на любую другую)
-# Но для работы с русским языком лучше использовать sentence-transformers
-# Пока используем стандартную функцию, потом заменим на rubert
-embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"  # хорошая модель для русского
-)
+logger = logging.getLogger(__name__)
 
 
 class MemoryService:
-    def __init__(self, character_id: int):
+    def __init__(self, db: AsyncSession, character_id: int):
+        self.db = db
         self.character_id = character_id
-        # Коллекция для этого персонажа
-        self.collection_name = f"character_{character_id}"
 
-        # Создаём коллекцию, если её нет
-        try:
-            self.collection = chroma_client.get_collection(self.collection_name)
-        except:
-            self.collection = chroma_client.create_collection(
-                name=self.collection_name,
-                embedding_function=embedding_fn
-            )
+    async def add_fact(self, fact: str, embedding: list = None):
+        """
+        Сохранить факт с вектором
 
-    async def add_fact(self, fact: str):
-        """Сохранить факт в память персонажа"""
-        # Генерируем уникальный ID
-        fact_id = str(uuid.uuid4())
+        Args:
+            fact: Текст факта
+            embedding: Вектор эмбеддинга (если None - будет сгенерирован автоматически)
+        """
+        # Если эмбеддинг не передан - генерируем
+        if embedding is None:
+            embedding = get_embedding(fact)
+            logger.debug(f"Сгенерирован эмбеддинг для факта: {fact[:50]}...")
 
-        self.collection.add(
-            documents=[fact],
-            ids=[fact_id],
-            metadatas=[{"character_id": self.character_id, "fact": fact}]
+        memory = Memory(
+            character_id=self.character_id,
+            fact=fact,
+            embedding=embedding if embedding else None
         )
-        print(f"🧠 Сохранён факт: {fact}")
+        self.db.add(memory)
+        await self.db.commit()
+        logger.info(f"✅ Факт сохранен: {fact[:50]}...")
 
     async def get_relevant_facts(self, query: str, limit: int = 5) -> list[str]:
-        """Найти релевантные факты по запросу"""
-        if self.collection.count() == 0:
-            return []
+        """
+        Векторный поиск фактов по смыслу
 
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=min(limit, self.collection.count())
-        )
+        Args:
+            query: Текст запроса
+            limit: Максимальное количество фактов
 
-        # Извлекаем только текст фактов
-        if results and results['documents']:
-            return [doc for doc in results['documents'][0] if doc]
-        return []
+        Returns:
+            list[str]: Список релевантных фактов
+        """
+        try:
+            # Получаем эмбеддинг для запроса
+            query_embedding = get_embedding(query)
+
+            if not query_embedding or all(v == 0 for v in query_embedding):
+                logger.warning("Не удалось получить эмбеддинг для запроса")
+                return await self.get_all_facts()
+
+            # Выполняем векторный поиск
+            result = await self.db.execute(
+                text("""
+                    SELECT fact
+                    FROM memories
+                    WHERE character_id = :character_id
+                    ORDER BY embedding <=> :query_embedding
+                    LIMIT :limit
+                """),
+                {
+                    "query_embedding": query_embedding,
+                    "character_id": self.character_id,
+                    "limit": limit
+                }
+            )
+
+            facts = [row[0] for row in result.fetchall()]
+            logger.info(f"🔍 Найдено {len(facts)} релевантных фактов")
+            return facts
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка векторного поиска: {e}")
+            # В случае ошибки возвращаем все факты
+            return await self.get_all_facts()
 
     async def get_all_facts(self) -> list[str]:
-        """Получить все сохранённые факты"""
-        if self.collection.count() == 0:
+        """Получить все факты пользователя"""
+        try:
+            result = await self.db.execute(
+                text("SELECT fact FROM memories WHERE character_id = :character_id"),
+                {"character_id": self.character_id}
+            )
+            facts = [row[0] for row in result.fetchall()]
+            logger.info(f"📚 Получено {len(facts)} фактов")
+            return facts
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения фактов: {e}")
             return []
 
-        results = self.collection.get()
-        return results['documents'] if results and 'documents' in results else []
-
     async def count_facts(self) -> int:
-        """Количество сохранённых фактов"""
-        return self.collection.count()
+        """Получить количество фактов"""
+        try:
+            result = await self.db.execute(
+                text("SELECT COUNT(*) FROM memories WHERE character_id = :character_id"),
+                {"character_id": self.character_id}
+            )
+            return result.scalar() or 0
+        except Exception as e:
+            logger.error(f"❌ Ошибка подсчета фактов: {e}")
+            return 0
 
     async def clear_all(self):
-        """Полностью удалить память персонажа"""
+        """Очистить все факты пользователя"""
         try:
-            # Удаляем коллекцию
-            chroma_client.delete_collection(self.collection_name)
-            print(f"🧹 Коллекция {self.collection_name} удалена")
+            await self.db.execute(
+                text("DELETE FROM memories WHERE character_id = :character_id"),
+                {"character_id": self.character_id}
+            )
+            await self.db.commit()
+            logger.info(f"🧹 Очищены все факты для character_id={self.character_id}")
         except Exception as e:
-            print(f"⚠️ Коллекция не найдена: {e}")
-
-        # Создаём новую пустую коллекцию
-        self.collection = chroma_client.create_collection(
-            name=self.collection_name,
-            embedding_function=embedding_fn
-        )
-        print(f"✅ Новая коллекция {self.collection_name} создана")
+            logger.error(f"❌ Ошибка очистки фактов: {e}")
+            await self.db.rollback()

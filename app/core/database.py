@@ -1,24 +1,38 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.orm import declarative_base
 from app.config import settings
+import sys
 
-# Создаем асинхронный движок для SQLite
+Base = declarative_base()
+
+# Для Windows используем psycopg2
+is_windows = sys.platform == 'win32'
+
+if is_windows:
+    # На Windows заменяем asyncpg на psycopg2
+    DATABASE_URL = settings.DATABASE_URL.replace('+asyncpg', '+psycopg2')
+else:
+    DATABASE_URL = settings.DATABASE_URL
+
+print(f"🔧 Использую БД: {DATABASE_URL}")
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    DATABASE_URL,
     echo=settings.DEBUG,
+    future=True,
+    pool_pre_ping=True,
+    pool_recycle=3600
 )
 
-# Создаем фабрику сессий
-AsyncSessionLocal = sessionmaker(
+AsyncSessionLocal = async_sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False
 )
 
-# Базовый класс для моделей
-Base = declarative_base()
-
-# Зависимость для получения сессии БД
-async def get_db():
+async def get_db() -> AsyncSession:
     async with AsyncSessionLocal() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            await session.close()

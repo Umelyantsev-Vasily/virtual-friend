@@ -212,8 +212,8 @@ async def handle_character_creation(update: Update, context: ContextTypes.DEFAUL
             existing = await service.get_by_user_id(user_id)
             if existing:
                 # ⚠️ ОЧИЩАЕМ СТАРУЮ ПАМЯТЬ ПЕРЕД УДАЛЕНИЕМ
-                old_memory = MemoryService(existing.id)
-                await old_memory.clear_all()
+                memory_service = MemoryService(db, existing.id)
+                await memory_service.clear_all()
                 # Удаляем старого персонажа
                 await service.delete_character(existing.id)
 
@@ -281,7 +281,7 @@ async def confirm_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ⚠️ ОЧИЩАЕМ ПАМЯТЬ ПЕРЕД УДАЛЕНИЕМ
-        memory_service = MemoryService(character.id)
+        memory_service = MemoryService(db, character.id)
         await memory_service.clear_all()
 
         # Удаляем персонажа
@@ -341,7 +341,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             # Продолжаем обработку как обычное сообщение
-            # Не возвращаем, а идем дальше
 
     # Кнопка "Мой профиль"
     if user_message == "👤 Мой профиль":
@@ -360,7 +359,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # === 2. ПРОВЕРКА СОСТОЯНИЯ СОЗДАНИЯ ПЕРСОНАЖА ===
 
-    # Проверяем, не находится ли пользователь в процессе создания персонажа
     if context.user_data.get('creating_character'):
         await handle_character_creation(update, context)
         return
@@ -384,8 +382,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg_service.save_user_message(character.id, user_message)
         history = await msg_service.get_history_for_ai(character.id, limit=20)
 
-        # Получаем факты из памяти
-        memory_service = MemoryService(character.id)
+        # Получаем факты из памяти (исправлено: передаем db)
+        memory_service = MemoryService(db, character.id)
         memory_facts = await memory_service.get_relevant_facts(user_message, limit=5)
 
         # Генерируем ответ
@@ -408,7 +406,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # === 4. ИЗВЛЕЧЕНИЕ ФАКТОВ ИЗ СООБЩЕНИЯ ===
 
         try:
-            memory_service = MemoryService(character.id)
+            # Исправлено: передаем db в MemoryService
+            memory_service = MemoryService(db, character.id)
 
             # 1. Имя пользователя
             name_match = re.search(r'(?:меня зовут|я\s+)([А-Яа-яЁё\s]+?)(?:[,\.]|$)', user_message, re.IGNORECASE)
@@ -441,8 +440,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.info(f"Сохранена любимая еда: {food}")
 
             # 5. Хобби/увлечения
-            hobby_match = re.search(r'(?:хобби|увлекаюсь|занимаюсь)\s+([а-яА-ЯёЁ\s,]+?)(?:[.,!?]|$)', user_message,
-                                    re.IGNORECASE)
+            hobby_match = re.search(r'(?:хобби|увлекаюсь|занимаюсь)\s+([а-яА-ЯёЁ\s,]+?)(?:[.,!?]|$)', user_message, re.IGNORECASE)
             if hobby_match:
                 hobby = hobby_match.group(1).strip()
                 if len(hobby) > 2:
@@ -468,14 +466,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Ошибка сохранения факта: {e}")
 
-    # === 5. ОТПРАВКА ОТВЕТА ===
+        # === 5. ОТПРАВКА ОТВЕТА ===
 
-    # Отправляем ответ с меню (если есть персонаж)
-    has_character = character is not None
-    await update.message.reply_text(
-        ai_reply,
-        reply_markup=MenuKeyboard.main_menu(has_character)
-    )
+        await update.message.reply_text(
+            ai_reply,
+            reply_markup=MenuKeyboard.main_menu(True)
+        )
 
 
 # === ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПРОФИЛЯ И НАСТРОЕК ===
@@ -500,8 +496,8 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = await msg_service.get_history(character.id, limit=100)
         total_messages = len(history)
 
-        # Получаем факты из памяти
-        memory_service = MemoryService(character.id)
+        # Получаем факты из памяти (исправлено: передаем db)
+        memory_service = MemoryService(db, character.id)
         facts = await memory_service.get_all_facts()
 
         profile_text = f"""
@@ -521,7 +517,7 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if facts:
             profile_text += "\n🧩 **Что я знаю о тебе:**\n"
-            for fact in facts[:5]:  # Показываем первые 5 фактов
+            for fact in facts[:5]:
                 profile_text += f"• {fact}\n"
             if len(facts) > 5:
                 profile_text += f"• ...и еще {len(facts) - 5} фактов\n"
@@ -583,8 +579,10 @@ def main():
 
     # Обработчики для кнопок действий
     app.add_handler(MessageHandler(filters.Regex('^📝 Создать персонажа$'), create_character))
-    app.add_handler(
-        MessageHandler(filters.Regex('^💬 Диалог$'), handle_message))  # Просто обрабатываем как обычное сообщение
+    app.add_handler(MessageHandler(filters.Regex('^👤 Мой профиль$'), show_profile))
+    app.add_handler(MessageHandler(filters.Regex('^🔄 Сменить персонажа$'), reset_character))
+    app.add_handler(MessageHandler(filters.Regex('^⚙️ Настройки$'), show_settings))
+    app.add_handler(MessageHandler(filters.Regex('^💬 Диалог$'), handle_message))
 
     # ОСНОВНОЙ обработчик сообщений (должен быть последним)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
