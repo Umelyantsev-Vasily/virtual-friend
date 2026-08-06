@@ -1,15 +1,47 @@
 import logging
 from datetime import datetime
-
+import numpy as np
+from sentence_transformers import SentenceTransformer
 from openai import AsyncOpenAI
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Инициализация клиента DeepSeek
 client = AsyncOpenAI(
     api_key=settings.DEEPSEEK_API_KEY,
     base_url=settings.DEEPSEEK_BASE_URL,
 )
+
+# Инициализация модели для эмбеддингов (один раз при старте)
+try:
+    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    logger.info("✅ Модель для эмбеддингов загружена")
+except Exception as e:
+    logger.error(f"❌ Ошибка загрузки модели эмбеддингов: {e}")
+    embedding_model = None
+
+
+def get_embedding(text: str) -> list:
+    """
+    Получить эмбеддинг для текста используя SentenceTransformer
+
+    Args:
+        text: Текст для векторизации
+
+    Returns:
+        list: Вектор эмбеддинга размерностью 384
+    """
+    if embedding_model is None:
+        logger.warning("Модель эмбеддингов не загружена, возвращаю нулевой вектор")
+        return [0.0] * 384
+
+    try:
+        embedding = embedding_model.encode(text, convert_to_numpy=True)
+        return embedding.tolist()
+    except Exception as e:
+        logger.error(f"Ошибка получения эмбеддинга: {e}")
+        return [0.0] * 384
 
 
 async def generate_response(
