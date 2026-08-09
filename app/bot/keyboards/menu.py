@@ -14,8 +14,9 @@ class MenuKeyboard:
             ]
         else:
             buttons = [
-                [KeyboardButton("💬 Диалог"), KeyboardButton("👤 Профиль")],
-                [KeyboardButton("🔄 Сменить персонажа"), KeyboardButton("⚙️ Настройки")]
+                [KeyboardButton("💬 Диалог"), KeyboardButton("👤 Мой профиль")],
+                [KeyboardButton("🔄 Сменить персонажа"), KeyboardButton("⚙️ Настройки")],
+                [KeyboardButton("ℹ️ О боте"), KeyboardButton("❓ Помощь")]  # Добавим для удобства
             ]
 
         return ReplyKeyboardMarkup(

@@ -1,13 +1,10 @@
-from pydantic_settings import BaseSettings
+﻿from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
 import os
 from dotenv import load_dotenv
 
 load_dotenv(encoding='utf-8')
 
-
-# SQLite (рабочий вариант)
-# DATABASE_URL: str = "sqlite+aiosqlite:///./virtual_friend.db"
 
 class Settings(BaseSettings):
     APP_NAME: str = "Virtual Friend"
@@ -25,7 +22,11 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: str = ""
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
 
-    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"  # ДОБАВЛЕНО!
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
