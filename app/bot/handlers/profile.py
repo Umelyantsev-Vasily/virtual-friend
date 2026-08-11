@@ -58,5 +58,4 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update,
             profile_text,
             parse_mode='Markdown',
-            reply_markup=MenuKeyboard.main_menu(True)
         )
