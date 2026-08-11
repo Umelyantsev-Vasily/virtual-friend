@@ -400,7 +400,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_message_live(
             update,
             ai_reply,
-            delay=1.2,
+            parse_mode=None,
             reply_markup=MenuKeyboard.main_menu(True)
         )
 

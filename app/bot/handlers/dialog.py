@@ -124,7 +124,6 @@ async def show_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_message_live(
             update,
             dialog_text,
-            delay=1.0,
             parse_mode='Markdown',
             reply_markup=MenuKeyboard.main_menu(True)
         )
