@@ -67,3 +67,11 @@ class CharacterService:
         await self.db.commit()
         await self.db.refresh(character)
         return character
+
+
+async def get_all_characters(self) -> list[Character]:
+    """Получить всех персонажей"""
+    result = await self.db.execute(
+        select(Character).where(Character.is_active == True)
+    )
+    return result.scalars().all()

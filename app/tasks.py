@@ -1,35 +1,73 @@
-import asyncio
+import logging
 from celery import shared_task
-from telegram import Bot
-from app.config import settings
+from app.services.character_service import CharacterService
+from app.services.message_service import MessageService
 from app.core.database import AsyncSessionLocal
-from app.models.character import Character
+from app.config import settings
+from telegram import Bot
+import asyncio
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task
-def send_proactive_message(message: str):
-    """Отправляет сообщение всем пользователям"""
-
-    async def _send():
+def send_proactive_message(text: str):
+    """Отправляет активное сообщение всем пользователям с персонажами"""
+    try:
+        # Создаём бота
         bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
 
-        async with AsyncSessionLocal() as db:
-            from sqlalchemy import select
-            result = await db.execute(select(Character))
-            characters = result.scalars().all()
+        # Получаем всех пользователей с персонажами
+        async def send_messages():
+            async with AsyncSessionLocal() as db:
+                char_service = CharacterService(db)
+                # Получаем всех пользователей
+                characters = await char_service.get_all_characters()
 
-            if not characters:
-                print("⚠️ Нет пользователей для отправки")
-                return
+                for character in characters:
+                    try:
+                        user_id = int(character.user_telegram_id)
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=text,
+                            parse_mode='Markdown'
+                        )
+                        logger.info(f"✅ Сообщение отправлено пользователю {user_id}")
 
-            for character in characters:
-                try:
-                    await bot.send_message(
-                        chat_id=character.user_telegram_id,
-                        text=f"🤗 {message}"
-                    )
-                    print(f"✅ Сообщение отправлено {character.user_telegram_id}")
-                except Exception as e:
-                    print(f"❌ Ошибка отправки {character.user_telegram_id}: {e}")
+                        # Сохраняем сообщение в историю
+                        msg_service = MessageService(db)
+                        await msg_service.save_assistant_message(
+                            character_id=character.id,
+                            content=text
+                        )
 
-    asyncio.run(_send())
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка отправки пользователю {user_id}: {e}")
+
+        # Запускаем асинхронную функцию
+        asyncio.run(send_messages())
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка в send_proactive_message: {e}")
+
+
+@shared_task
+def send_birthday_message():
+    """Отправляет поздравления с днём рождения"""
+    # TODO: реализовать проверку дней рождения из фактов
+    pass
+
+
+@shared_task
+def send_motivation_message():
+    """Отправляет мотивационное сообщение"""
+    texts = [
+        "🌟 Ты способен на большее, чем думаешь! Верь в себя! 💪",
+        "🚀 Каждый день — это новая возможность стать лучше!",
+        "🌈 Не бойся ошибок — они делают тебя сильнее!",
+        "✨ Ты уникален и неповторим! Помни об этом! 💫",
+        "🎯 Маленькие шаги каждый день приводят к большим победам!",
+    ]
+    import random
+    text = random.choice(texts)
+    send_proactive_message.delay(text)
