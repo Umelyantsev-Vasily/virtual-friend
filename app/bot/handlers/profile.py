@@ -57,7 +57,5 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_message_live(
             update,
             profile_text,
-            delay=0.8,
             parse_mode='Markdown',
-            reply_markup=MenuKeyboard.main_menu(True)
         )

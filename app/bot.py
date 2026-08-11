@@ -20,7 +20,6 @@ from app.core.database import AsyncSessionLocal
 
 # Импорты из handlers
 from app.bot.handlers.profile import show_profile
-from app.bot.handlers.dialog import show_dialog
 from app.bot.handlers.settings import show_settings
 
 logging.basicConfig(level=logging.INFO)
@@ -315,10 +314,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await create_character(update, context)
         return
 
-    if user_message == "💬 Диалог":
-        await show_dialog(update, context)
-        return
-
     if user_message in ["👤 Профиль", "👤 Мой профиль"]:
         await show_profile(update, context)
         return
@@ -329,11 +324,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user_message == "⚙️ Настройки":
         await show_settings(update, context)
-        return
-
-    # Обработка "Ещё!" для цитат (гибкая проверка)
-    if "ещё" in user_message.lower() and context.user_data.get('quote_mode'):
-        await show_dialog(update, context)
         return
 
     # === СОЗДАНИЕ ПЕРСОНАЖА ===
@@ -400,9 +390,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_message_live(
             update,
             ai_reply,
-            delay=1.2,
-            reply_markup=MenuKeyboard.main_menu(True)
+            parse_mode=None,
         )
+
+
+async def show_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню по команде /menu"""
+    user_id = str(update.effective_user.id)
+
+    async with AsyncSessionLocal() as db:
+        service = CharacterService(db)
+        character = await service.get_by_user_id(user_id)
+        has_character = character is not None
+
+    await update.message.reply_text(
+        "📋 **Меню**",
+        parse_mode='Markdown',
+        reply_markup=MenuKeyboard.main_menu(has_character)
+    )
 
 
 def main():
@@ -426,15 +431,15 @@ def main():
     app.add_handler(CommandHandler("reset", reset_character))
     app.add_handler(CommandHandler("confirm_reset", confirm_reset))
 
+    app.add_handler(CommandHandler("menu", show_menu_command))
+
     menu = MenuHandlers()
     app.add_handler(MessageHandler(filters.Regex('^ℹ️ О боте$'), menu.about))
-    app.add_handler(MessageHandler(filters.Regex('^❓ Помощь$'), menu.help))
 
     app.add_handler(MessageHandler(filters.Regex('^📝 Создать персонажа$'), create_character))
     app.add_handler(MessageHandler(filters.Regex('^👤 (Мой )?Профиль$'), show_profile))
     app.add_handler(MessageHandler(filters.Regex('^🔄 Сменить персонажа$'), reset_character))
     app.add_handler(MessageHandler(filters.Regex('^⚙️ Настройки$'), show_settings))
-    app.add_handler(MessageHandler(filters.Regex('^💬 Диалог$'), show_dialog))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 

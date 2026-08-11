@@ -1,22 +1,19 @@
-from telegram import ReplyKeyboardMarkup, KeyboardButton
-
+from telegram import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 class MenuKeyboard:
     """Клавиатуры для меню"""
 
     @staticmethod
     def main_menu(has_character: bool = False) -> ReplyKeyboardMarkup:
-        """Главное меню"""
+        """Главное меню - только базовые кнопки"""
         if not has_character:
             buttons = [
                 [KeyboardButton("📝 Создать персонажа")],
-                [KeyboardButton("ℹ️ О боте"), KeyboardButton("❓ Помощь")]
             ]
         else:
             buttons = [
-                [KeyboardButton("💬 Диалог"), KeyboardButton("👤 Мой профиль")],
+                [KeyboardButton("👤 Профиль")],
                 [KeyboardButton("🔄 Сменить персонажа"), KeyboardButton("⚙️ Настройки")],
-                [KeyboardButton("ℹ️ О боте"), KeyboardButton("❓ Помощь")]  # Добавим для удобства
             ]
 
         return ReplyKeyboardMarkup(
@@ -32,3 +29,8 @@ class MenuKeyboard:
             [[KeyboardButton("❌ Отмена")]],
             resize_keyboard=True
         )
+
+    @staticmethod
+    def remove() -> ReplyKeyboardRemove:
+        """Убрать клавиатуру"""
+        return ReplyKeyboardRemove()
