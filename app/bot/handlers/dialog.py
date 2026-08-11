@@ -8,6 +8,7 @@ from app.services.message_service import MessageService
 from app.services.memory_service import MemoryService
 from app.services.ai_service import generate_response
 from app.core.database import AsyncSessionLocal
+from app.utils.message_utils import send_message_live
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +121,10 @@ async def show_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data['quote_mode'] = True
 
-        await update.message.reply_text(
+        await send_message_live(
+            update,
             dialog_text,
+            delay=1.0,
             parse_mode='Markdown',
             reply_markup=MenuKeyboard.main_menu(True)
         )

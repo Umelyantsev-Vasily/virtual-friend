@@ -1,6 +1,6 @@
 import sys
 import os
-
+from app.utils.message_utils import send_message_live
 from app.bot.keyboards.menu import MenuKeyboard
 from app.bot.handlers.menu import MenuHandlers
 
@@ -331,8 +331,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_settings(update, context)
         return
 
-    # Обработка "Ещё!" для цитат
-    if user_message.lower() == "ещё!" and context.user_data.get('quote_mode'):
+    # Обработка "Ещё!" для цитат (гибкая проверка)
+    if "ещё" in user_message.lower() and context.user_data.get('quote_mode'):
         await show_dialog(update, context)
         return
 
@@ -396,8 +396,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Ошибка сохранения факта: {e}")
 
-        await update.message.reply_text(
+        # === ОТПРАВКА С ЭФФЕКТОМ ЖИВОГО ДИАЛОГА ===
+        await send_message_live(
+            update,
             ai_reply,
+            delay=1.2,
             reply_markup=MenuKeyboard.main_menu(True)
         )
 

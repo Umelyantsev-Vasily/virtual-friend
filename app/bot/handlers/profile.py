@@ -6,6 +6,7 @@ from app.services.character_service import CharacterService
 from app.services.message_service import MessageService
 from app.services.memory_service import MemoryService
 from app.core.database import AsyncSessionLocal
+from app.utils.message_utils import send_message_live
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,10 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len(facts) > 5:
                 profile_text += f"• ...и еще {len(facts) - 5} фактов\n"
 
-        await update.message.reply_text(
+        await send_message_live(
+            update,
             profile_text,
+            delay=0.8,
             parse_mode='Markdown',
             reply_markup=MenuKeyboard.main_menu(True)
         )
